@@ -1,0 +1,552 @@
+--! /usr/bin/env lua
+
+--[[
+    So i made a customizeable script which can work in almost every game. have fun with it or something its very scuffed tho since it doesn't have team check but idc.
+]]
+
+local fov = 25
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+local Cam = game.Workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+
+-- Global state for the script: Is it enabled?
+local scriptEnabled = false -- Aimbot Script starts OFF by default
+local inventoryDisplayEnabled = false -- Inventory display starts OFF by default
+local espEnabled = false -- NEW: ESP (highlight) starts OFF by default
+
+-- Drawing object for the FOV circle
+local FOVring = Drawing.new("Circle")
+FOVring.Visible = scriptEnabled -- Initial visibility based on scriptEnabled
+FOVring.Thickness = 2
+FOVring.Color = Color3.fromRGB(128, 0, 128) -- Purple color
+FOVring.Filled = false
+FOVring.Radius = fov
+FOVring.Position = Cam.ViewportSize / 2
+
+-- Table to store references to created Highlight objects
+local playerHighlights = {}
+-- Table to store references to created Inventory BillboardGuis
+local playerInventoryGUIs = {}
+
+-- Create the UI elements for the on/off switch and collapsible menu
+local playerGui = LocalPlayer:WaitForChild("PlayerGui")
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "AimbotToggleGui"
+screenGui.Parent = playerGui
+screenGui.ResetOnSpawn = false
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "AimbotMainFrame"
+mainFrame.Size = UDim2.new(0, 180, 0, 100) -- Initial size for the frame (will be adjusted by collapse)
+mainFrame.Position = UDim2.new(0.05, 0, 0.05, 0)
+mainFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+mainFrame.BorderSizePixel = 2
+mainFrame.BorderColor3 = Color3.fromRGB(0, 0, 0)
+mainFrame.Parent = screenGui
+
+local headerFrame = Instance.new("Frame")
+headerFrame.Name = "HeaderFrame"
+headerFrame.Size = UDim2.new(1, 0, 0, 30) -- Full width, 30px height
+headerFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+headerFrame.BorderColor3 = Color3.fromRGB(0, 0, 0)
+headerFrame.BorderSizePixel = 1
+headerFrame.Parent = mainFrame
+
+local headerText = Instance.new("TextLabel")
+headerText.Name = "HeaderText"
+headerText.Size = UDim2.new(0.7, 0, 1, 0) -- Takes most of the header
+headerText.Position = UDim2.new(0, 0, 0, 0)
+headerText.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+headerText.TextColor3 = Color3.fromRGB(255, 255, 255)
+headerText.Text = "Aimbot Menu"
+headerText.Font = Enum.Font.SourceSansBold
+headerText.TextSize = 18
+headerText.Parent = headerFrame
+
+local toggleCollapseButton = Instance.new("TextButton")
+toggleCollapseButton.Name = "ToggleCollapseButton"
+toggleCollapseButton.Size = UDim2.new(0.3, 0, 1, 0) -- Remaining width for button
+toggleCollapseButton.Position = UDim2.new(0.7, 0, 0, 0)
+toggleCollapseButton.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+toggleCollapseButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleCollapseButton.Text = "-" -- Start collapsed
+toggleCollapseButton.Font = Enum.Font.SourceSansBold
+toggleCollapseButton.TextSize = 20
+toggleCollapseButton.BorderColor3 = Color3.fromRGB(0, 0, 0)
+toggleCollapseButton.BorderSizePixel = 1
+toggleCollapseButton.Parent = headerFrame
+
+local contentFrame = Instance.new("Frame")
+contentFrame.Name = "ContentFrame"
+contentFrame.Size = UDim2.new(1, 0, 1, -30) -- Takes full width, remaining height
+contentFrame.Position = UDim2.new(0, 0, 0, 30) -- Below the header
+contentFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+contentFrame.BorderSizePixel = 0
+contentFrame.Parent = mainFrame
+
+local aimbotToggleButton = Instance.new("TextButton")
+aimbotToggleButton.Name = "AimbotToggleButton"
+aimbotToggleButton.Size = UDim2.new(0, 150, 0, 28) -- Slightly smaller to fit two
+aimbotToggleButton.Position = UDim2.new(0.5, -75, 0, 5) -- Position for the first button
+aimbotToggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50) -- Red when OFF
+aimbotToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+aimbotToggleButton.Text = "Aimbot OFF"
+aimbotToggleButton.Font = Enum.Font.SourceSansBold
+aimbotToggleButton.TextSize = 18
+aimbotToggleButton.BorderColor3 = Color3.fromRGB(0, 0, 0)
+aimbotToggleButton.BorderSizePixel = 2
+aimbotToggleButton.Parent = contentFrame
+
+-- Inventory Display Toggle Button (Original, but now repositioned)
+local inventoryDisplayToggleButton = Instance.new("TextButton")
+inventoryDisplayToggleButton.Name = "InventoryDisplayToggleButton"
+inventoryDisplayToggleButton.Size = UDim2.new(0, 150, 0, 28)
+inventoryDisplayToggleButton.Position = UDim2.new(0.5, -75, 0, 38) -- Position below aimbot button
+inventoryDisplayToggleButton.BackgroundColor3 = Color3.fromRGB(50, 50, 200) -- Blue when OFF
+inventoryDisplayToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+inventoryDisplayToggleButton.Text = "Inv. Display OFF"
+inventoryDisplayToggleButton.Font = Enum.Font.SourceSansBold
+inventoryDisplayToggleButton.TextSize = 18
+inventoryDisplayToggleButton.BorderColor3 = Color3.fromRGB(0, 0, 0)
+inventoryDisplayToggleButton.BorderSizePixel = 2
+inventoryDisplayToggleButton.Parent = contentFrame
+
+-- NEW: ESP Toggle Button
+local espToggleButton = Instance.new("TextButton")
+espToggleButton.Name = "ESPToggleButton"
+espToggleButton.Size = UDim2.new(0, 150, 0, 28)
+espToggleButton.Position = UDim2.new(0.5, -75, 0, 71) -- Position below inventory display (38 + 28 + 5 padding)
+espToggleButton.BackgroundColor3 = Color3.fromRGB(200, 150, 50) -- Orange when OFF
+espToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+espToggleButton.Text = "ESP OFF"
+espToggleButton.Font = Enum.Font.SourceSansBold
+espToggleButton.TextSize = 18
+espToggleButton.BorderColor3 = Color3.fromRGB(0, 0, 0)
+espToggleButton.BorderSizePixel = 2
+espToggleButton.Parent = contentFrame
+
+-- Adjust mainFrame size to accommodate three buttons if not collapsed
+mainFrame.Size = UDim2.new(0, 180, 0, 133) -- 30 header + 3*28 buttons + 4*5 padding = 134, let's make it 133
+
+-- Variable to store the RenderStepped connection so it can be disconnected later
+local aimbotConnection
+
+-- Initial state for GUI collapse
+local isCollapsed = false
+-- Set the initial mainFrame size for a collapsed state (only header visible)
+mainFrame.Size = UDim2.new(0, 180, 0, 30)
+contentFrame.Visible = false -- Ensure content frame is hidden on start
+
+
+--- Highlight Management ---
+
+local function createPlayerHighlight(player)
+    if player and player.Character and not playerHighlights[player.UserId] then
+        local highlight = Instance.new("Highlight")
+        highlight.FillTransparency = 0.6
+        highlight.OutlineTransparency = 0
+        highlight.FillColor = Color3.fromRGB(255, 255, 0) -- Yellow fill
+        highlight.OutlineColor = Color3.fromRGB(255, 0, 0) -- Red outline
+        highlight.Parent = player.Character
+        highlight.Enabled = espEnabled -- Use new espEnabled variable for initial state
+        playerHighlights[player.UserId] = highlight
+
+        player.CharacterAdded:Connect(function(character)
+            if highlight and highlight.Parent then -- Check if highlight still exists
+                highlight.Parent = character
+                highlight.Enabled = espEnabled -- Update with new espEnabled state
+            end
+        end)
+    end
+end
+
+local function removePlayerHighlight(player)
+    if playerHighlights[player.UserId] then
+        playerHighlights[player.UserId]:Destroy()
+        playerHighlights[player.UserId] = nil
+    end
+end
+
+local function updateAllHighlightsVisibility(enabled)
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and playerHighlights[player.UserId] then
+            playerHighlights[player.UserId].Enabled = enabled
+        end
+    end
+end
+
+--- Inventory Display Management ---
+
+local function updateInventoryDisplayContent(player, billboardGui)
+    local scrollingFrame = billboardGui:FindFirstChild("MainFrame"):FindFirstChild("ScrollingFrame")
+    if not scrollingFrame then return end
+
+    -- Clear existing items
+    for _, child in ipairs(scrollingFrame:GetChildren()) do
+        if child:IsA("TextLabel") then
+            child:Destroy()
+        end
+    end
+
+    local itemsFound = false
+
+    -- Check Backpack
+    if player.Backpack then
+        for _, item in ipairs(player.Backpack:GetChildren()) do
+            if item:IsA("Tool") then
+                local itemLabel = Instance.new("TextLabel")
+                itemLabel.Size = UDim2.new(1, 0, 0, 16)
+                itemLabel.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+                itemLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+                itemLabel.Text = item.Name
+                itemLabel.TextSize = 14
+                itemLabel.TextXAlignment = Enum.TextXAlignment.Left
+                itemLabel.TextWrapped = true
+                itemLabel.Parent = scrollingFrame
+                itemsFound = true
+            end
+        end
+    end
+
+    -- Check items equipped in Character
+    if player.Character then
+        for _, item in ipairs(player.Character:GetChildren()) do
+            if item:IsA("Tool") then
+                local itemLabel = Instance.new("TextLabel")
+                itemLabel.Size = UDim2.new(1, 0, 0, 16)
+                itemLabel.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+                itemLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+                itemLabel.Text = "(Equipped) " .. item.Name
+                itemLabel.TextSize = 14
+                itemLabel.TextXAlignment = Enum.TextXAlignment.Left
+                itemLabel.TextWrapped = true
+                itemLabel.Parent = scrollingFrame
+                itemsFound = true
+            end
+        end
+    end
+
+    if not itemsFound then
+        local noItemsLabel = Instance.new("TextLabel")
+        noItemsLabel.Size = UDim2.new(1, 0, 0, 16)
+        noItemsLabel.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+        noItemsLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+        noItemsLabel.Text = "No items"
+        noItemsLabel.TextSize = 14
+        noItemsLabel.TextXAlignment = Enum.TextXAlignment.Center
+        noItemsLabel.Parent = scrollingFrame
+    end
+end
+
+local function createPlayerInventoryDisplay(player)
+    if player == LocalPlayer then return end -- Don't create for the local player
+
+    -- This nested function will handle creating/recreating the BillboardGui for a given character.
+    -- It ensures proper adorning and lifecycle management.
+    local function setupBillboardGuiForCharacter(character)
+        -- Clean up any existing BillboardGui for this player first.
+        -- This is crucial for handling character respawns properly, ensuring a fresh GUI.
+        if playerInventoryGUIs[player.UserId] then
+            playerInventoryGUIs[player.UserId]:Destroy()
+            playerInventoryGUIs[player.UserId] = nil
+        end
+
+        -- Make sure the character and its Humanoid are valid before proceeding.
+        if not character or not character:FindFirstChildOfClass("Humanoid") then
+            return -- Invalid character, cannot create display
+        end
+
+        -- Crucial change: Wait for the HumanoidRootPart to ensure it exists.
+        -- This prevents the BillboardGui from failing to adorn if HRP isn't immediately present.
+        local humanoidRootPart = character:WaitForChild("HumanoidRootPart", 10) -- Wait up to 10 seconds
+        if not humanoidRootPart then
+            warn("Could not find HumanoidRootPart for " .. player.Name .. "'s character after waiting. Inventory display aborted.")
+            return
+        end
+
+        local billboardGui = Instance.new("BillboardGui")
+        billboardGui.Name = "InventoryDisplay_" .. player.Name
+        billboardGui.Size = UDim2.new(0, 120, 0, 80) -- Width 120, Height 80
+        billboardGui.Adornee = humanoidRootPart -- Now we are sure HumanoidRootPart exists!
+        billboardGui.AlwaysOnTop = true
+        billboardGui.ExtentsOffset = Vector3.new(0, 3, 0) -- Adjust Y offset to be above player
+        billboardGui.Parent = game.Workspace.CurrentCamera -- Parent to Camera for easier management
+        billboardGui.Enabled = inventoryDisplayEnabled -- Set initial visibility
+        playerInventoryGUIs[player.UserId] = billboardGui -- Store reference
+
+        -- UI elements within the BillboardGui (unchanged from original logic)
+        local mainFrameBG = Instance.new("Frame")
+        mainFrameBG.Name = "MainFrame"
+        mainFrameBG.Size = UDim2.new(1, 0, 1, 0)
+        mainFrameBG.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+        mainFrameBG.BackgroundTransparency = 0.3 -- Original transparency
+        mainFrameBG.BorderColor3 = Color3.fromRGB(0, 0, 0)
+        mainFrameBG.BorderSizePixel = 1
+        mainFrameBG.Parent = billboardGui
+
+        local nameLabel = Instance.new("TextLabel")
+        nameLabel.Name = "PlayerName"
+        nameLabel.Size = UDim2.new(1, 0, 0, 18)
+        nameLabel.Position = UDim2.new(0,0,0,0)
+        nameLabel.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+        nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        nameLabel.Text = player.Name
+        nameLabel.Font = Enum.Font.SourceSansBold
+        nameLabel.TextSize = 14
+        nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+        nameLabel.TextWrapped = true
+        nameLabel.Parent = mainFrameBG
+
+        local scrollingFrame = Instance.new("ScrollingFrame")
+        scrollingFrame.Name = "ScrollingFrame"
+        scrollingFrame.Size = UDim2.new(1, 0, 1, -18)
+        scrollingFrame.Position = UDim2.new(0, 0, 0, 18)
+        scrollingFrame.BackgroundTransparency = 1
+        scrollingFrame.BorderColor3 = Color3.fromRGB(0, 0, 0)
+        scrollingFrame.BorderSizePixel = 0
+        scrollingFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+        scrollingFrame.ScrollBarThickness = 4
+        scrollingFrame.Parent = mainFrameBG
+
+        local listLayout = Instance.new("UIListLayout")
+        listLayout.FillDirection = Enum.FillDirection.Vertical
+        listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+        listLayout.Padding = UDim.new(0, 2)
+        listLayout.Parent = scrollingFrame
+
+        -- Update content initially
+        updateInventoryDisplayContent(player, billboardGui)
+
+        -- Connect listeners for inventory changes (scoped to this specific BillboardGui instance)
+        -- These connections will be properly disconnected when the billboardGui is destroyed.
+        local backpackConnection = player.Backpack.ChildAdded:Connect(function() updateInventoryDisplayContent(player, billboardGui) end)
+        local backpackRemovedConnection = player.Backpack.ChildRemoved:Connect(function() updateInventoryDisplayContent(player, billboardGui) end)
+        local charChildAddedConnection = character.ChildAdded:Connect(function(child)
+            if child:IsA("Tool") then updateInventoryDisplayContent(player, billboardGui) end
+        end)
+        local charChildRemovedConnection = character.ChildRemoved:Connect(function(child)
+            if child:IsA("Tool") then updateInventoryDisplayContent(player, billboardGui) end
+        end)
+
+        -- Disconnect all associated connections when this specific BillboardGui instance is destroyed
+        billboardGui.Destroying:Connect(function()
+            if backpackConnection then backpackConnection:Disconnect() end
+            if backpackRemovedConnection then backpackRemovedConnection:Disconnect() end
+            if charChildAddedConnection then charChildAddedConnection:Disconnect() end
+            if charChildRemovedConnection then charChildRemovedConnection:Disconnect() end
+        end)
+    end
+
+    -- Connect to CharacterAdded: This ensures that if the player respawns,
+    -- the BillboardGui is recreated and re-adorned to the new character's HumanoidRootPart.
+    player.CharacterAdded:Connect(setupBillboardGuiForCharacter)
+
+    -- Attempt to set up the BillboardGui immediately if the player's character already exists
+    -- (e.g., when the script starts and players are already in the game).
+    if player.Character then
+        setupBillboardGuiForCharacter(player.Character)
+    end
+end
+
+local function removePlayerInventoryDisplay(player)
+    if playerInventoryGUIs[player.UserId] then
+        playerInventoryGUIs[player.UserId]:Destroy()
+        playerInventoryGUIs[player.UserId] = nil
+    end
+end
+
+local function updateAllInventoryDisplaysVisibility(enabled)
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and playerInventoryGUIs[player.UserId] then
+            playerInventoryGUIs[player.UserId].Enabled = enabled
+        end
+    end
+end
+
+-- Initialize highlights and inventory displays for players already in the game when the script starts
+local function setupExistingPlayersFeatures()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            createPlayerHighlight(player)
+            createPlayerInventoryDisplay(player)
+        end
+    end
+end
+
+-- Listen for new players joining
+Players.PlayerAdded:Connect(function(player)
+    -- Both highlight and inventory display creation functions are now robust
+    -- enough to handle character availability internally.
+    createPlayerHighlight(player)
+    createPlayerInventoryDisplay(player)
+end)
+
+-- Listen for players leaving
+Players.PlayerRemoving:Connect(function(player)
+    removePlayerHighlight(player)
+    removePlayerInventoryDisplay(player)
+end)
+
+--------------------------
+
+local function updateDrawings()
+    -- Only update and show the FOV ring if the script is currently enabled
+    if scriptEnabled then
+        local camViewportSize = Cam.ViewportSize
+        FOVring.Position = camViewportSize / 2
+        FOVring.Visible = true
+    else
+        FOVring.Visible = false
+    end
+end
+
+-- Function to handle toggling the aimbot state
+local function toggleAimbot()
+    scriptEnabled = not scriptEnabled
+    print("Aimbot Toggled:", scriptEnabled and "ON" or "OFF")
+
+    -- Update the button's appearance based on the new state
+    if scriptEnabled then
+        aimbotToggleButton.Text = "Aimbot ON"
+        aimbotToggleButton.BackgroundColor3 = Color3.fromRGB(50, 200, 50) -- Green when ON
+    else
+        aimbotToggleButton.Text = "Aimbot OFF"
+        aimbotToggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50) -- Red when OFF
+    end
+    -- Highlights are now controlled by espEnabled, not scriptEnabled
+    -- updateAllHighlightsVisibility(scriptEnabled) -- Removed this line
+end
+
+-- Function to handle toggling inventory display state
+local function toggleInventoryDisplay()
+    inventoryDisplayEnabled = not inventoryDisplayEnabled
+    print("Inventory Display Toggled:", inventoryDisplayEnabled and "ON" or "OFF")
+
+    -- Update the button's appearance based on the new state
+    if inventoryDisplayEnabled then
+        inventoryDisplayToggleButton.Text = "Inv. Display ON"
+        inventoryDisplayToggleButton.BackgroundColor3 = Color3.fromRGB(50, 50, 200) -- Blue when ON
+    else
+        inventoryDisplayToggleButton.Text = "Inv. Display OFF"
+        inventoryDisplayToggleButton.BackgroundColor3 = Color3.fromRGB(200, 200, 50) -- Yellow when OFF
+    end
+
+    -- Update inventory display visibility for all players
+    updateAllInventoryDisplaysVisibility(inventoryDisplayEnabled)
+end
+
+-- NEW: Function to handle toggling ESP state
+local function toggleESP()
+    espEnabled = not espEnabled
+    print("ESP Toggled:", espEnabled and "ON" or "OFF")
+
+    -- Update the button's appearance based on the new state
+    if espEnabled then
+        espToggleButton.Text = "ESP ON"
+        espToggleButton.BackgroundColor3 = Color3.fromRGB(50, 150, 200) -- Light Blue when ON
+    else
+        espToggleButton.Text = "ESP OFF"
+        espToggleButton.BackgroundColor3 = Color3.fromRGB(200, 150, 50) -- Orange when OFF
+    end
+
+    -- Update highlight visibility for all players based on the new ESP state
+    updateAllHighlightsVisibility(espEnabled)
+end
+
+-- Function to handle collapsing/expanding the GUI
+local function toggleCollapse()
+    isCollapsed = not isCollapsed
+    if isCollapsed then
+        mainFrame.Size = UDim2.new(0, 180, 0, 30) -- Only header height
+        contentFrame.Visible = false
+        toggleCollapseButton.Text = "+"
+    else
+        mainFrame.Size = UDim2.new(0, 180, 0, 133) -- Full height for 3 buttons
+        contentFrame.Visible = true
+        toggleCollapseButton.Text = "-"
+    end
+end
+
+-- Connect UI buttons to their functions
+aimbotToggleButton.MouseButton1Click:Connect(toggleAimbot)
+inventoryDisplayToggleButton.MouseButton1Click:Connect(toggleInventoryDisplay)
+espToggleButton.MouseButton1Click:Connect(toggleESP) -- Connect the new ESP button
+toggleCollapseButton.MouseButton1Click:Connect(toggleCollapse)
+
+local function onKeyDown(input)
+    if input.KeyCode == Enum.KeyCode.Delete then
+        print("Script Permanently Disabled and Removed.")
+        scriptEnabled = false
+        inventoryDisplayEnabled = false
+        espEnabled = false -- Disable ESP on script removal
+        FOVring:Remove()
+        if aimbotConnection then
+            aimbotConnection:Disconnect()
+        end
+        UserInputService.InputBegan:Disconnect(onKeyDown)
+        screenGui:Destroy()
+        -- Remove all existing highlights when the script is fully disabled
+        for _, highlight in pairs(playerHighlights) do
+            highlight:Destroy()
+        end
+        playerHighlights = {} -- Clear the table
+        -- Remove all existing inventory displays
+        for _, displayGui in pairs(playerInventoryGUIs) do
+            displayGui:Destroy()
+        end
+        playerInventoryGUIs = {} -- Clear the table
+    end
+end
+
+UserInputService.InputBegan:Connect(onKeyDown)
+
+local function lookAt(target)
+    local lookVector = (target - Cam.CFrame.Position).unit
+    local newCFrame = CFrame.new(Cam.CFrame.Position, Cam.CFrame.Position + lookVector)
+    Cam.CFrame = newCFrame
+end
+
+local function getClosestPlayerInFOV(trg_part)
+    local nearest = nil
+    local last = math.huge
+    local playerMousePos = Cam.ViewportSize / 2
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild(trg_part) then
+            -- Team Check: Only target players not on the same team
+            if LocalPlayer.Team and player.Team and LocalPlayer.Team == player.Team then
+                continue -- Skip if they are on the same team
+            end
+
+            local part = player.Character[trg_part]
+            local ePos, isVisible = Cam:WorldToViewportPoint(part.Position)
+            local distance = (Vector2.new(ePos.x, ePos.y) - playerMousePos).Magnitude
+
+            if distance < last and isVisible and distance < fov then
+                last = distance
+                nearest = player
+            end
+        end
+    end
+
+    return nearest
+end
+
+-- Connect the main aimbot logic to RenderStepped
+aimbotConnection = RunService.RenderStepped:Connect(function()
+    updateDrawings() -- Always update drawing visibility and position
+
+    -- Only execute the aiming logic if the script is enabled
+    if scriptEnabled then
+        local closest = getClosestPlayerInFOV("HumanoidRootPart")
+        if closest and closest.Character:FindFirstChild("HumanoidRootPart") then
+            lookAt(closest.Character.HumanoidRootPart.Position)
+        end
+    end
+end)
+
+-- Initialize highlights and inventory displays for players already in the game when the script starts
+-- This should be called after all functions are defined
+setupExistingPlayersFeatures()
