@@ -142,23 +142,40 @@ contentFrame.Visible = false -- Ensure content frame is hidden on start
 
 --- Highlight Management ---
 
-local function createPlayerHighlight(player)
-    if player and player.Character and not playerHighlights[player.UserId] then
-        local highlight = Instance.new("Highlight")
-        highlight.FillTransparency = 0.6
-        highlight.OutlineTransparency = 0
-        highlight.FillColor = Color3.fromRGB(255, 255, 0) -- Yellow fill
-        highlight.OutlineColor = Color3.fromRGB(255, 0, 0) -- Red outline
-        highlight.Parent = player.Character
-        highlight.Enabled = espEnabled -- Use new espEnabled variable for initial state
-        playerHighlights[player.UserId] = highlight
+local function createOrUpdatePlayerHighlight(player)
+    -- This function ensures that a highlight exists for the player's current character
+    -- and is properly enabled/disabled based on `espEnabled`.
+    if player == LocalPlayer then return end -- Don't highlight local player
 
-        player.CharacterAdded:Connect(function(character)
-            if highlight and highlight.Parent then -- Check if highlight still exists
-                highlight.Parent = character
-                highlight.Enabled = espEnabled -- Update with new espEnabled state
-            end
-        end)
+    local currentHighlight = playerHighlights[player.UserId]
+    local character = player.Character
+
+    if character then
+        if not currentHighlight then
+            -- Create a new highlight if one doesn't exist for this player
+            currentHighlight = Instance.new("Highlight")
+            currentHighlight.FillTransparency = 0.6
+            currentHighlight.OutlineTransparency = 0
+            currentHighlight.FillColor = Color3.fromRGB(255, 255, 0) -- Yellow fill
+            currentHighlight.OutlineColor = Color3.fromRGB(255, 0, 0) -- Red outline
+            playerHighlights[player.UserId] = currentHighlight
+
+            -- Connect CharacterAdded to re-parent the highlight
+            player.CharacterAdded:Connect(function(newCharacter)
+                -- If a highlight still exists for this player, re-parent it
+                if playerHighlights[player.UserId] then
+                    playerHighlights[player.UserId].Parent = newCharacter
+                    playerHighlights[player.UserId].Enabled = espEnabled -- Ensure it's enabled based on global state
+                end
+            end)
+        end
+        -- Always ensure the highlight is parented to the *current* character
+        -- and its enabled state matches `espEnabled`.
+        currentHighlight.Parent = character
+        currentHighlight.Enabled = espEnabled
+    elseif currentHighlight then
+        -- If player has no character but a highlight exists, disable it for now.
+        currentHighlight.Enabled = false
     end
 end
 
@@ -369,7 +386,7 @@ end
 local function setupExistingPlayersFeatures()
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
-            createPlayerHighlight(player)
+            createOrUpdatePlayerHighlight(player) -- Use the new function here
             createPlayerInventoryDisplay(player)
         end
     end
@@ -379,7 +396,7 @@ end
 Players.PlayerAdded:Connect(function(player)
     -- Both highlight and inventory display creation functions are now robust
     -- enough to handle character availability internally.
-    createPlayerHighlight(player)
+    createOrUpdatePlayerHighlight(player) -- Use the new function here
     createPlayerInventoryDisplay(player)
 end)
 
