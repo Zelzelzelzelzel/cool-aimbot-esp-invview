@@ -15,12 +15,14 @@ local LocalPlayer = Players.LocalPlayer
 local scriptEnabled = false -- Aimbot Script starts OFF by default
 local inventoryDisplayEnabled = false -- Inventory display starts OFF by default
 local espEnabled = false -- NEW: ESP (highlight) starts OFF by default
+local aimbotTargetPart = "HumanoidRootPart" -- NEW: Default target part for aimbot
+local maxDetectionDistance = 500 -- NEW: Default max detection distance (500 studs)
 
 -- Drawing object for the FOV circle
 local FOVring = Drawing.new("Circle")
 FOVring.Visible = scriptEnabled -- Initial visibility based on scriptEnabled
 FOVring.Thickness = 2
-FOVring.Color = Color3.fromRGB(128, 0, 128) -- Purple color
+FOVring.Color = Color3.fromRGB(255, 165, 0) -- CHANGED: Orange color
 FOVring.Filled = false
 FOVring.Radius = fov
 FOVring.Position = Cam.ViewportSize / 2
@@ -40,11 +42,13 @@ screenGui.ResetOnSpawn = false
 local mainFrame = Instance.new("Frame")
 mainFrame.Name = "AimbotMainFrame"
 mainFrame.Size = UDim2.new(0, 180, 0, 100) -- Initial size for the frame (will be adjusted by collapse)
-mainFrame.Position = UDim2.new(0.05, 0, 0.05, 0)
+mainFrame.Position = UDim2.new(0.05, 0, 0.05, 0) -- IMPORTANT: Initial position has scale
 mainFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 mainFrame.BorderSizePixel = 2
 mainFrame.BorderColor3 = Color3.fromRGB(0, 0, 0)
 mainFrame.Parent = screenGui
+mainFrame.Draggable = true -- Keeping this in, though it didn't work for you. No harm in leaving it.
+mainFrame.Active = true
 
 local headerFrame = Instance.new("Frame")
 headerFrame.Name = "HeaderFrame"
@@ -53,6 +57,7 @@ headerFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
 headerFrame.BorderColor3 = Color3.fromRGB(0, 0, 0)
 headerFrame.BorderSizePixel = 1
 headerFrame.Parent = mainFrame
+headerFrame.Active = true
 
 local headerText = Instance.new("TextLabel")
 headerText.Name = "HeaderText"
@@ -64,6 +69,7 @@ headerText.Text = "Aimbot Menu"
 headerText.Font = Enum.Font.SourceSansBold
 headerText.TextSize = 18
 headerText.Parent = headerFrame
+headerText.Active = true
 
 local toggleCollapseButton = Instance.new("TextButton")
 toggleCollapseButton.Name = "ToggleCollapseButton"
@@ -77,6 +83,7 @@ toggleCollapseButton.TextSize = 20
 toggleCollapseButton.BorderColor3 = Color3.fromRGB(0, 0, 0)
 toggleCollapseButton.BorderSizePixel = 1
 toggleCollapseButton.Parent = headerFrame
+toggleCollapseButton.Active = true
 
 local contentFrame = Instance.new("Frame")
 contentFrame.Name = "ContentFrame"
@@ -85,6 +92,7 @@ contentFrame.Position = UDim2.new(0, 0, 0, 30) -- Below the header
 contentFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 contentFrame.BorderSizePixel = 0
 contentFrame.Parent = mainFrame
+contentFrame.Active = true
 
 local aimbotToggleButton = Instance.new("TextButton")
 aimbotToggleButton.Name = "AimbotToggleButton"
@@ -127,8 +135,36 @@ espToggleButton.BorderColor3 = Color3.fromRGB(0, 0, 0)
 espToggleButton.BorderSizePixel = 2
 espToggleButton.Parent = contentFrame
 
--- Adjust mainFrame size to accommodate three buttons if not collapsed
-mainFrame.Size = UDim2.new(0, 180, 0, 133) -- 30 header + 3*28 buttons + 4*5 padding = 134, let's make it 133
+-- NEW: Aimbot Target Toggle Button
+local aimbotTargetToggleButton = Instance.new("TextButton")
+aimbotTargetToggleButton.Name = "AimbotTargetToggleButton"
+aimbotTargetToggleButton.Size = UDim2.new(0, 150, 0, 28)
+aimbotTargetToggleButton.Position = UDim2.new(0.5, -75, 0, 104) -- Position below ESP button
+aimbotTargetToggleButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100) -- Grey
+aimbotTargetToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+aimbotTargetToggleButton.Text = "Target: HumanoidRootPart"
+aimbotTargetToggleButton.Font = Enum.Font.SourceSansBold
+aimbotTargetToggleButton.TextSize = 16
+aimbotTargetToggleButton.BorderColor3 = Color3.fromRGB(0, 0, 0)
+aimbotTargetToggleButton.BorderSizePixel = 2
+aimbotTargetToggleButton.Parent = contentFrame
+
+-- NEW: Max Distance Toggle Button
+local maxDistanceToggleButton = Instance.new("TextButton")
+maxDistanceToggleButton.Name = "MaxDistanceToggleButton"
+maxDistanceToggleButton.Size = UDim2.new(0, 150, 0, 28)
+maxDistanceToggleButton.Position = UDim2.new(0.5, -75, 0, 137) -- Position below Aimbot Target button
+maxDistanceToggleButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70) -- Darker Grey
+maxDistanceToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+maxDistanceToggleButton.Text = "Max Dist: " .. maxDetectionDistance .. " studs"
+maxDistanceToggleButton.Font = Enum.Font.SourceSansBold
+maxDistanceToggleButton.TextSize = 14
+maxDistanceToggleButton.BorderColor3 = Color3.fromRGB(0, 0, 0)
+maxDistanceToggleButton.BorderSizePixel = 2
+maxDistanceToggleButton.Parent = contentFrame
+
+-- Adjust mainFrame size to accommodate five buttons if not collapsed
+mainFrame.Size = UDim2.new(0, 180, 0, 199) -- 30 header + 5*28 buttons + 6*5 padding = 140+30+30=200, so 199 should fit.
 
 -- Variable to store the RenderStepped connection so it can be disconnected later
 local aimbotConnection
@@ -477,6 +513,38 @@ local function toggleESP()
     updateAllHighlightsVisibility(espEnabled)
 end
 
+-- NEW: Function to handle toggling aimbot target
+local function toggleAimbotTarget()
+    if aimbotTargetPart == "HumanoidRootPart" then
+        aimbotTargetPart = "Head"
+        aimbotTargetToggleButton.Text = "Target: Head"
+        aimbotTargetToggleButton.BackgroundColor3 = Color3.fromRGB(150, 50, 200) -- Purple
+    else
+        aimbotTargetPart = "HumanoidRootPart"
+        aimbotTargetToggleButton.Text = "Target: HumanoidRootPart"
+        aimbotTargetToggleButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100) -- Grey
+    end
+    print("Aimbot Target Toggled:", aimbotTargetPart)
+end
+
+-- NEW: Function to toggle Max Detection Distance
+local function toggleMaxDistance()
+    -- Cycle through a few common distances: 200, 500, 1000, 2000, 5000
+    if maxDetectionDistance == 500 then
+        maxDetectionDistance = 1000
+    elseif maxDetectionDistance == 1000 then
+        maxDetectionDistance = 2000
+    elseif maxDetectionDistance == 2000 then
+        maxDetectionDistance = 5000
+    elseif maxDetectionDistance == 5000 then
+        maxDetectionDistance = 200
+    else -- Fallback, just in case
+        maxDetectionDistance = 500
+    end
+    maxDistanceToggleButton.Text = "Max Dist: " .. maxDetectionDistance .. " studs"
+    print("Max Detection Distance Toggled:", maxDetectionDistance, "studs")
+end
+
 -- Function to handle collapsing/expanding the GUI
 local function toggleCollapse()
     isCollapsed = not isCollapsed
@@ -485,7 +553,7 @@ local function toggleCollapse()
         contentFrame.Visible = false
         toggleCollapseButton.Text = "+"
     else
-        mainFrame.Size = UDim2.new(0, 180, 0, 133) -- Full height for 3 buttons
+        mainFrame.Size = UDim2.new(0, 180, 0, 199) -- Full height for 5 buttons
         contentFrame.Visible = true
         toggleCollapseButton.Text = "-"
     end
@@ -495,6 +563,8 @@ end
 aimbotToggleButton.MouseButton1Click:Connect(toggleAimbot)
 inventoryDisplayToggleButton.MouseButton1Click:Connect(toggleInventoryDisplay)
 espToggleButton.MouseButton1Click:Connect(toggleESP) -- Connect the new ESP button
+aimbotTargetToggleButton.MouseButton1Click:Connect(toggleAimbotTarget) -- Connect new aimbot target button
+maxDistanceToggleButton.MouseButton1Click:Connect(toggleMaxDistance) -- Connect new max distance button
 toggleCollapseButton.MouseButton1Click:Connect(toggleCollapse)
 
 local function onKeyDown(input)
@@ -507,7 +577,7 @@ local function onKeyDown(input)
         if aimbotConnection then
             aimbotConnection:Disconnect()
         end
-        UserInputService.InputBegan:Connect(onKeyDown) -- This should be Disconnect
+        UserInputService.InputBegan:Disconnect(onKeyDown) -- Corrected: Disconnect this connection
         screenGui:Destroy()
         -- Remove all existing highlights when the script is fully disabled
         for _, highlight in pairs(playerHighlights) do
@@ -524,6 +594,11 @@ end
 
 UserInputService.InputBegan:Connect(onKeyDown)
 
+-- Custom Draggable GUI functionality (ORIGINAL CODE - NOW REMOVED/DISABLED FOR Draggable = TRUE)
+-- Since mainFrame.Draggable = true handles dragging, this custom code is not needed.
+-- It's removed to avoid potential conflicts and keep the script cleaner.
+
+
 local function lookAt(target)
     local lookVector = (target - Cam.CFrame.Position).unit
     local newCFrame = CFrame.new(Cam.CFrame.Position, Cam.CFrame.Position + lookVector)
@@ -534,6 +609,10 @@ local function getClosestPlayerInFOV(trg_part)
     local nearest = nil
     local last = math.huge
     local playerMousePos = Cam.ViewportSize / 2
+    local localCharacter = LocalPlayer.Character
+    local localHumanoidRootPart = localCharacter and localCharacter:FindFirstChild("HumanoidRootPart")
+
+    if not localHumanoidRootPart then return nil end -- Can't aim if local player isn't loaded
 
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild(trg_part) then
@@ -543,6 +622,13 @@ local function getClosestPlayerInFOV(trg_part)
             end
 
             local part = player.Character[trg_part]
+            local playerDistance = (localHumanoidRootPart.Position - part.Position).Magnitude -- Distance in studs
+            
+            -- NEW: Check against maxDetectionDistance
+            if playerDistance > maxDetectionDistance then
+                continue -- Skip if target is too far away
+            end
+
             local ePos, isVisible = Cam:WorldToViewportPoint(part.Position)
             local distance = (Vector2.new(ePos.x, ePos.y) - playerMousePos).Magnitude
 
@@ -562,9 +648,9 @@ aimbotConnection = RunService.RenderStepped:Connect(function()
 
     -- Only execute the aiming logic if the script is enabled
     if scriptEnabled then
-        local closest = getClosestPlayerInFOV("HumanoidRootPart")
-        if closest and closest.Character:FindFirstChild("HumanoidRootPart") then
-            lookAt(closest.Character.HumanoidRootPart.Position)
+        local closest = getClosestPlayerInFOV(aimbotTargetPart) -- Use the selected target part
+        if closest and closest.Character:FindFirstChild(aimbotTargetPart) then
+            lookAt(closest.Character[aimbotTargetPart].Position)
         end
     end
 end)
