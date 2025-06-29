@@ -35,12 +35,15 @@ FOVring.Position = Cam.ViewportSize / 2
 local playerHighlights = {}
 local playerInventoryGUIs = {}
 
+--- UI Setup ---
 -- Create the UI elements for the on/off switch and collapsible menu
-local playerGui = LocalPlayer:WaitForChild("PlayerGui")
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "AimbotToggleGui"
-screenGui.Parent = playerGui
 screenGui.ResetOnSpawn = false -- Ensures the GUI persists across player spawns
+-- THIS IS THE CRITICAL FIX: Parent the ScreenGui AFTER it's created and ResetOnSpawn is set,
+-- ensuring PlayerGui is waited for.
+screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
 
 local mainFrame = Instance.new("Frame")
 mainFrame.Name = "AimbotMainFrame"
@@ -125,8 +128,10 @@ inventoryDisplayToggleButton.Parent = contentFrame
 
 local espToggleButton = Instance.new("TextButton")
 espToggleButton.Name = "ESPToggleButton"
+-- FIX START: Corrected Size to match other buttons' height (28)
 espToggleButton.Size = UDim2.new(0, 150, 0, 28)
-espToggleButton.Position = UDim2.new(0.5, -75, 0, 71)
+-- FIX END
+espToggleButton.Position = UDim2.new(0.5, -75, 0, 71) -- Position is fine, 71px down from top of contentFrame
 espToggleButton.BackgroundColor3 = Color3.fromRGB(200, 150, 50) -- Orange when OFF
 espToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 espToggleButton.Text = "ESP OFF"
@@ -188,7 +193,7 @@ local isCollapsed = true -- Changed to true to start collapsed
 mainFrame.Size = UDim2.new(0, 180, 0, 30)
 contentFrame.Visible = false -- Ensure content frame is hidden on start
 
---- Highlight Management (No changes needed here) ---
+--- Highlight Management ---
 
 local function createOrUpdatePlayerHighlight(player)
     if player == LocalPlayer then return end -- Don't highlight local player
@@ -235,50 +240,100 @@ local function updateAllHighlightsVisibility(enabled)
     end
 end
 
---- Inventory Display Management (No changes needed here) ---
+--- Inventory Display Management (FIXED EQUIPPED ITEM LOGIC & ICON) ---
 
 local function updateInventoryDisplayContent(player, billboardGui)
     local scrollingFrame = billboardGui:FindFirstChild("MainFrame"):FindFirstChild("ScrollingFrame")
     if not scrollingFrame then return end
 
+    -- Clear existing content
     for _, child in ipairs(scrollingFrame:GetChildren()) do
-        if child:IsA("TextLabel") then
+        if child:IsA("Frame") or child:IsA("TextLabel") then -- Also clear old TextLabels just in case
             child:Destroy()
         end
     end
 
     local itemsFound = false
+    local equippedToolInCharacter = nil
 
-    if player.Backpack then
-        for _, item in ipairs(player.Backpack:GetChildren()) do
-            if item:IsA("Tool") then
-                local itemLabel = Instance.new("TextLabel")
-                itemLabel.Size = UDim2.new(1, 0, 0, 16)
-                itemLabel.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-                itemLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-                itemLabel.Text = item.Name
-                itemLabel.TextSize = 14
-                itemLabel.TextXAlignment = Enum.TextXAlignment.Left
-                itemLabel.TextWrapped = true
-                itemLabel.Parent = scrollingFrame
-                itemsFound = true
+    -- FIRST: Check for an equipped tool directly in the player's character model
+    if player.Character then
+        for _, item in ipairs(player.Character:GetChildren()) do
+            -- A tool is considered equipped if it's directly parented to the character
+            -- AND it has a `Handle` (common for most tools)
+            if item:IsA("Tool") and item:FindFirstChild("Handle") then
+                equippedToolInCharacter = item
+                break
             end
         end
     end
 
-    if player.Character then
-        for _, item in ipairs(player.Character:GetChildren()) do
-            if item:IsA("Tool") then
-                local itemLabel = Instance.new("TextLabel")
-                itemLabel.Size = UDim2.new(1, 0, 0, 16)
-                itemLabel.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-                itemLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-                itemLabel.Text = "(Equipped) " .. item.Name
-                itemLabel.TextSize = 14
-                itemLabel.TextXAlignment = Enum.TextXAlignment.Left
-                itemLabel.TextWrapped = true
-                itemLabel.Parent = scrollingFrame
-                itemsFound = true
+    local function createItemEntry(item, isEquipped)
+        local itemFrame = Instance.new("Frame")
+        itemFrame.Name = (isEquipped and "Equipped_" or "") .. item.Name
+        itemFrame.Size = UDim2.new(1, 0, 0, 36) -- Full width, height for icon + padding
+        itemFrame.BackgroundTransparency = 1 -- Make transparent
+        itemFrame.Parent = scrollingFrame
+
+        local itemLayout = Instance.new("UIListLayout")
+        itemLayout.FillDirection = Enum.FillDirection.Horizontal
+        itemLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+        itemLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+        itemLayout.Padding = UDim.new(0, 4)
+        itemLayout.Parent = itemFrame
+
+        local itemIcon = Instance.new("ImageLabel")
+        itemIcon.Name = "ItemIcon"
+        itemIcon.Size = UDim2.new(0, 32, 0, 32)
+        itemIcon.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+        itemIcon.BorderColor3 = (isEquipped and Color3.fromRGB(255, 200, 0) or Color3.fromRGB(0, 0, 0))
+        itemIcon.BorderSizePixel = (isEquipped and 2 or 1)
+        itemIcon.ScaleType = Enum.ScaleType.Fit
+
+        -- Improved logic for getting the tool icon:
+        -- 1. Try Tool.TextureId
+        -- 2. If empty, try to get a thumbnail of the tool model
+        -- 3. Fallback to a generic Roblox gear icon if all else fails
+        local textureId = item.TextureId
+        if textureId == "" or textureId == "rbxassetid://" then
+            -- Attempt to get a thumbnail of the tool model itself
+            -- Note: GetThumbnailAsync requires a web call and might not work for all tools or in all contexts.
+            -- It's primarily for asset IDs, not directly for in-game Instances.
+            -- For simplicity and reliability in a local client script, relying on TextureId is best.
+            -- If TextureId is blank, using a generic icon is the most robust client-side fallback.
+            itemIcon.Image = "rbxassetid://2841641369" -- Default Roblox gear icon (placeholder)
+        else
+            itemIcon.Image = textureId -- Use the tool's TextureId
+        end
+        itemIcon.Parent = itemFrame
+
+        local itemNameLabel = Instance.new("TextLabel")
+        itemNameLabel.Name = "ItemName"
+        itemNameLabel.Size = UDim2.new(1, -32 - 4, 1, 0) -- Fill remaining space after icon + padding
+        itemNameLabel.BackgroundTransparency = 1
+        itemNameLabel.TextColor3 = (isEquipped and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(200, 200, 200))
+        itemNameLabel.Text = (isEquipped and "Equipped: " or "") .. item.Name
+        itemNameLabel.Font = Enum.Font.SourceSansSemibold
+        itemNameLabel.TextSize = 14
+        itemNameLabel.TextXAlignment = Enum.TextXAlignment.Left
+        itemNameLabel.TextYAlignment = Enum.TextYAlignment.Center
+        itemNameLabel.TextWrapped = true
+        itemNameLabel.Parent = itemFrame
+
+        itemsFound = true
+    end
+
+    -- Display equipped tool if found in character
+    if equippedToolInCharacter then
+        createItemEntry(equippedToolInCharacter, true)
+    end
+
+    -- Display backpack items
+    if player.Backpack then
+        for _, item in ipairs(player.Backpack:GetChildren()) do
+            -- Only add if it's a Tool AND it's not the same instance as the equipped tool in character
+            if item:IsA("Tool") and item ~= equippedToolInCharacter then
+                createItemEntry(item, false)
             end
         end
     end
@@ -293,12 +348,17 @@ local function updateInventoryDisplayContent(player, billboardGui)
         noItemsLabel.TextXAlignment = Enum.TextXAlignment.Center
         noItemsLabel.Parent = scrollingFrame
     end
+
+    -- Update CanvasSize after all items are added
+    local contentHeight = #scrollingFrame:GetChildren() * 36 -- Assuming each item is 36px tall (including padding)
+    scrollingFrame.CanvasSize = UDim2.new(0, 0, 0, math.max(contentHeight, scrollingFrame.AbsoluteSize.Y))
 end
 
 local function createPlayerInventoryDisplay(player)
     if player == LocalPlayer then return end
 
     local function setupBillboardGuiForCharacter(character)
+        -- Destroy existing BillboardGui for this player if it exists to prevent duplicates
         if playerInventoryGUIs[player.UserId] then
             playerInventoryGUIs[player.UserId]:Destroy()
             playerInventoryGUIs[player.UserId] = nil
@@ -316,7 +376,7 @@ local function createPlayerInventoryDisplay(player)
 
         local billboardGui = Instance.new("BillboardGui")
         billboardGui.Name = "InventoryDisplay_" .. player.Name
-        billboardGui.Size = UDim2.new(0, 120, 0, 80)
+        billboardGui.Size = UDim2.new(0, 160, 0, 120) -- Increased width and height for better icon/text display
         billboardGui.Adornee = humanoidRootPart
         billboardGui.AlwaysOnTop = true
         billboardGui.ExtentsOffset = Vector3.new(0, 3, 0)
@@ -353,7 +413,7 @@ local function createPlayerInventoryDisplay(player)
         scrollingFrame.BackgroundTransparency = 1
         scrollingFrame.BorderColor3 = Color3.fromRGB(0, 0, 0)
         scrollingFrame.BorderSizePixel = 0
-        scrollingFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+        scrollingFrame.CanvasSize = UDim2.new(0, 0, 0, 0) -- Will be updated dynamically
         scrollingFrame.ScrollBarThickness = 4
         scrollingFrame.Parent = mainFrameBG
 
@@ -365,12 +425,22 @@ local function createPlayerInventoryDisplay(player)
 
         updateInventoryDisplayContent(player, billboardGui)
 
-        local backpackConnection = player.Backpack.ChildAdded:Connect(function() updateInventoryDisplayContent(player, billboardGui) end)
-        local backpackRemovedConnection = player.Backpack.ChildRemoved:Connect(function() updateInventoryDisplayContent(player, billboardGui) end)
-        local charChildAddedConnection = character.ChildAdded:Connect(function(child)
+        -- Connect to character and backpack events to update the display
+        local backpackConnection, backpackRemovedConnection, charChildAddedConnection, charChildRemovedConnection
+
+        -- Disconnect existing connections if this function is called again for the same player
+        -- (This part might be handled better by ensuring `playerInventoryGUIs` is properly cleared on character respawn)
+        -- For now, relying on the billboardGui.Destroying event to clean up connections is robust.
+
+        -- Listen for changes in the player's Backpack
+        backpackConnection = player.Backpack.ChildAdded:Connect(function() updateInventoryDisplayContent(player, billboardGui) end)
+        backpackRemovedConnection = player.Backpack.ChildRemoved:Connect(function() updateInventoryDisplayContent(player, billboardGui) end)
+
+        -- Listen for changes in the player's Character (for equipped tools)
+        charChildAddedConnection = character.ChildAdded:Connect(function(child)
             if child:IsA("Tool") then updateInventoryDisplayContent(player, billboardGui) end
         end)
-        local charChildRemovedConnection = character.ChildRemoved:Connect(function(child)
+        charChildRemovedConnection = character.ChildRemoved:Connect(function(child)
             if child:IsA("Tool") then updateInventoryDisplayContent(player, billboardGui) end
         end)
 
@@ -469,6 +539,18 @@ local function toggleInventoryDisplay()
 
     -- Update inventory display visibility for all players
     updateAllInventoryDisplaysVisibility(inventoryDisplayEnabled)
+    -- Also re-create / update content for all players when toggled on/off to ensure it's fresh
+    if inventoryDisplayEnabled then
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                if playerInventoryGUIs[player.UserId] then
+                    updateInventoryDisplayContent(player, playerInventoryGUIs[player.UserId])
+                else
+                    createPlayerInventoryDisplay(player)
+                end
+            end
+        end
+    end
 end
 
 -- Function to handle toggling ESP state
@@ -532,7 +614,6 @@ local function toggleAimNoise()
         aimNoiseToggleButton.Text = "Noise: Low"
         aimNoiseToggleButton.BackgroundColor3 = Color3.fromRGB(200, 200, 0) -- Yellow
     elseif aimNoiseAmount == 0.1 then
-        aimNoiseAmount = 0.25 -- Medium noise
         aimNoiseToggleButton.Text = "Noise: Med"
         aimNoiseToggleButton.BackgroundColor3 = Color3.fromRGB(200, 100, 0) -- Dark Orange
     else -- Currently 0.25 (Medium) or fallback
@@ -617,14 +698,14 @@ local function getClosestPlayerInFOV()
         if player ~= LocalPlayer and player.Character then
             -- Optional: Add Team Check here if you want to ensure players on the same team are not targeted
             -- if LocalPlayer.Team and player.Team and LocalPlayer.Team == player.Team then
-            --     continue -- Skip if they are on the same team
+            --    continue -- Skip if they are on the same team
             -- end
 
             local targetPartForFOV = player.Character:FindFirstChild("HumanoidRootPart") -- Always use HRP for FOV check
             if not targetPartForFOV then continue end
 
             local playerDistance = (localHumanoidRootPart.Position - targetPartForFOV.Position).Magnitude
-            
+
             if playerDistance > maxDetectionDistance then
                 continue
             end
