@@ -17,6 +17,7 @@ local inventoryDisplayEnabled = false -- Inventory display starts OFF by default
 local espEnabled = false -- ESP (highlight) starts OFF by default
 local aimTargetMode = "HumanoidRootPart" -- Controls which part to target: "HumanoidRootPart", "Head", or "Random"
 local maxDetectionDistance = 500 -- Max distance in studs for aimbot and ESP detection
+local teamCheckEnabled = true -- Team Check starts ON by default
 
 -- New variables for aim randomness and noise
 local aimNoiseAmount = 0.0 -- Magnitude of random noise to add to aim (0.0 for none, 0.1 for low, 0.25 for medium)
@@ -40,10 +41,8 @@ local playerInventoryGUIs = {}
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "AimbotToggleGui"
 screenGui.ResetOnSpawn = false -- Ensures the GUI persists across player spawns
--- THIS IS THE CRITICAL FIX: Parent the ScreenGui AFTER it's created and ResetOnSpawn is set,
--- ensuring PlayerGui is waited for.
 screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-
+print("AimbotToggleGui parented to PlayerGui.") -- Added print statement for debugging
 
 local mainFrame = Instance.new("Frame")
 mainFrame.Name = "AimbotMainFrame"
@@ -55,6 +54,7 @@ mainFrame.BorderColor3 = Color3.fromRGB(0, 0, 0)
 mainFrame.Parent = screenGui
 mainFrame.Draggable = true -- Allows user to drag the UI around
 mainFrame.Active = true
+mainFrame.Visible = true -- Explicitly ensure visibility of the main frame
 
 local headerFrame = Instance.new("Frame")
 headerFrame.Name = "HeaderFrame"
@@ -91,32 +91,34 @@ toggleCollapseButton.BorderSizePixel = 1
 toggleCollapseButton.Parent = headerFrame
 toggleCollapseButton.Active = true
 
+-- NEW: Dedicated Aimbot Toggle Button (always visible)
+local aimbotMainToggleButton = Instance.new("TextButton")
+aimbotMainToggleButton.Name = "AimbotMainToggleButton"
+aimbotMainToggleButton.Size = UDim2.new(0, 150, 0, 28)
+aimbotMainToggleButton.Position = UDim2.new(0.5, -75, 0, 35) -- Position below header, always visible
+aimbotMainToggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50) -- Red when OFF
+aimbotMainToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+aimbotMainToggleButton.Text = "Aimbot OFF"
+aimbotMainToggleButton.Font = Enum.Font.SourceSansBold
+aimbotMainToggleButton.TextSize = 18
+aimbotMainToggleButton.BorderColor3 = Color3.fromRGB(0, 0, 0)
+aimbotMainToggleButton.BorderSizePixel = 2
+aimbotMainToggleButton.Parent = mainFrame -- Parent to mainFrame so it's always visible
+
 local contentFrame = Instance.new("Frame")
 contentFrame.Name = "ContentFrame"
-contentFrame.Size = UDim2.new(1, 0, 1, -30) -- Takes full width, remaining height
-contentFrame.Position = UDim2.new(0, 0, 0, 30) -- Below the header
+contentFrame.Size = UDim2.new(1, 0, 1, -68) -- Takes full width, remaining height (30 header + 28 aimbot toggle + 10 padding = 68)
+contentFrame.Position = UDim2.new(0, 0, 0, 68) -- Below the header and aimbot toggle
 contentFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 contentFrame.BorderSizePixel = 0
 contentFrame.Parent = mainFrame
 contentFrame.Active = true
 
-local aimbotToggleButton = Instance.new("TextButton")
-aimbotToggleButton.Name = "AimbotToggleButton"
-aimbotToggleButton.Size = UDim2.new(0, 150, 0, 28)
-aimbotToggleButton.Position = UDim2.new(0.5, -75, 0, 5)
-aimbotToggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50) -- Red when OFF
-aimbotToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-aimbotToggleButton.Text = "Aimbot OFF"
-aimbotToggleButton.Font = Enum.Font.SourceSansBold
-aimbotToggleButton.TextSize = 18
-aimbotToggleButton.BorderColor3 = Color3.fromRGB(0, 0, 0)
-aimbotToggleButton.BorderSizePixel = 2
-aimbotToggleButton.Parent = contentFrame
-
+-- Reposition other buttons inside the contentFrame
 local inventoryDisplayToggleButton = Instance.new("TextButton")
 inventoryDisplayToggleButton.Name = "InventoryDisplayToggleButton"
 inventoryDisplayToggleButton.Size = UDim2.new(0, 150, 0, 28)
-inventoryDisplayToggleButton.Position = UDim2.new(0.5, -75, 0, 38)
+inventoryDisplayToggleButton.Position = UDim2.new(0.5, -75, 0, 5) -- Adjusted position inside contentFrame
 inventoryDisplayToggleButton.BackgroundColor3 = Color3.fromRGB(50, 50, 200) -- Blue when OFF
 inventoryDisplayToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 inventoryDisplayToggleButton.Text = "Inv. Display OFF"
@@ -128,10 +130,8 @@ inventoryDisplayToggleButton.Parent = contentFrame
 
 local espToggleButton = Instance.new("TextButton")
 espToggleButton.Name = "ESPToggleButton"
--- FIX START: Corrected Size to match other buttons' height (28)
 espToggleButton.Size = UDim2.new(0, 150, 0, 28)
--- FIX END
-espToggleButton.Position = UDim2.new(0.5, -75, 0, 71) -- Position is fine, 71px down from top of contentFrame
+espToggleButton.Position = UDim2.new(0.5, -75, 0, 38) -- Adjusted position inside contentFrame
 espToggleButton.BackgroundColor3 = Color3.fromRGB(200, 150, 50) -- Orange when OFF
 espToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 espToggleButton.Text = "ESP OFF"
@@ -141,10 +141,23 @@ espToggleButton.BorderColor3 = Color3.fromRGB(0, 0, 0)
 espToggleButton.BorderSizePixel = 2
 espToggleButton.Parent = contentFrame
 
+local teamCheckToggleButton = Instance.new("TextButton")
+teamCheckToggleButton.Name = "TeamCheckToggleButton"
+teamCheckToggleButton.Size = UDim2.new(0, 150, 0, 28)
+teamCheckToggleButton.Position = UDim2.new(0.5, -75, 0, 71) -- Adjusted position inside contentFrame
+teamCheckToggleButton.BackgroundColor3 = Color3.fromRGB(150, 150, 150) -- Grey for ON/OFF
+teamCheckToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+teamCheckToggleButton.Text = "Team Check: ON" -- Initial state
+teamCheckToggleButton.Font = Enum.Font.SourceSansBold
+teamCheckToggleButton.TextSize = 16
+teamCheckToggleButton.BorderColor3 = Color3.fromRGB(0, 0, 0)
+teamCheckToggleButton.BorderSizePixel = 2
+teamCheckToggleButton.Parent = contentFrame
+
 local aimbotTargetToggleButton = Instance.new("TextButton")
 aimbotTargetToggleButton.Name = "AimbotTargetToggleButton"
 aimbotTargetToggleButton.Size = UDim2.new(0, 150, 0, 28)
-aimbotTargetToggleButton.Position = UDim2.new(0.5, -75, 0, 104)
+aimbotTargetToggleButton.Position = UDim2.new(0.5, -75, 0, 104) -- Adjusted position inside contentFrame
 aimbotTargetToggleButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100) -- Grey
 aimbotTargetToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 aimbotTargetToggleButton.Text = "Target: " .. aimTargetMode
@@ -157,7 +170,7 @@ aimbotTargetToggleButton.Parent = contentFrame
 local maxDistanceToggleButton = Instance.new("TextButton")
 maxDistanceToggleButton.Name = "MaxDistanceToggleButton"
 maxDistanceToggleButton.Size = UDim2.new(0, 150, 0, 28)
-maxDistanceToggleButton.Position = UDim2.new(0.5, -75, 0, 137)
+maxDistanceToggleButton.Position = UDim2.new(0.5, -75, 0, 137) -- Adjusted position inside contentFrame
 maxDistanceToggleButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70) -- Darker Grey
 maxDistanceToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 maxDistanceToggleButton.Text = "Max Dist: " .. maxDetectionDistance .. " studs"
@@ -167,11 +180,10 @@ maxDistanceToggleButton.BorderColor3 = Color3.fromRGB(0, 0, 0)
 maxDistanceToggleButton.BorderSizePixel = 2
 maxDistanceToggleButton.Parent = contentFrame
 
--- NEW: Aim Noise Toggle Button
 local aimNoiseToggleButton = Instance.new("TextButton")
 aimNoiseToggleButton.Name = "AimNoiseToggleButton"
 aimNoiseToggleButton.Size = UDim2.new(0, 150, 0, 28)
-aimNoiseToggleButton.Position = UDim2.new(0.5, -75, 0, 170) -- Position below Max Distance button (137 + 28 + 5 padding)
+aimNoiseToggleButton.Position = UDim2.new(0.5, -75, 0, 170) -- Adjusted position inside contentFrame
 aimNoiseToggleButton.BackgroundColor3 = Color3.fromRGB(90, 90, 90) -- Medium Grey
 aimNoiseToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 aimNoiseToggleButton.Text = "Noise: None" -- Initial text
@@ -181,17 +193,12 @@ aimNoiseToggleButton.BorderColor3 = Color3.fromRGB(0, 0, 0)
 aimNoiseToggleButton.BorderSizePixel = 2
 aimNoiseToggleButton.Parent = contentFrame
 
--- Adjust mainFrame size to accommodate all buttons if not collapsed
--- 30 header + 6*28 buttons + 7*5 padding = 30 + 168 + 35 = 233
-mainFrame.Size = UDim2.new(0, 180, 0, 233)
-
 -- Variable to store the RenderStepped connection so it can be disconnected later
 local aimbotConnection
 
 -- Initial state for GUI collapse (starts collapsed)
 local isCollapsed = true -- Changed to true to start collapsed
-mainFrame.Size = UDim2.new(0, 180, 0, 30)
-contentFrame.Visible = false -- Ensure content frame is hidden on start
+-- contentFrame.Visible = false -- This will be handled by the initial toggleCollapse() call
 
 --- Highlight Management ---
 
@@ -213,10 +220,12 @@ local function createOrUpdatePlayerHighlight(player)
         end
 
         currentHighlight.Parent = character
-        currentHighlight.Enabled = espEnabled
+        currentHighlight.Enabled = espEnabled -- Set based on current ESP state
     end
 
+    -- Connect to CharacterAdded for when a player's character spawns or respawns
     player.CharacterAdded:Connect(setupHighlightForCharacter)
+    -- If the character already exists (e.g., player joined before script loaded), set it up immediately
     if player.Character then
         setupHighlightForCharacter(player.Character)
     end
@@ -232,7 +241,8 @@ end
 local function updateAllHighlightsVisibility(enabled)
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
-            createOrUpdatePlayerHighlight(player)
+            -- Ensure highlight exists, then update its visibility
+            createOrUpdatePlayerHighlight(player) -- This creates if not exists and updates its parent
             if playerHighlights[player.UserId] then
                 playerHighlights[player.UserId].Enabled = enabled
             end
@@ -248,10 +258,10 @@ local function updateInventoryDisplayContent(player, billboardGui)
 
     -- Clear existing content
     for _, child in ipairs(scrollingFrame:GetChildren()) do
-        if child:IsA("Frame") or child:IsA("TextLabel") then -- Also clear old TextLabels just in case
+        if child:IsA("Frame") or child:IsA("TextLabel") then
             child:Destroy()
         end
-    end
+    end -- <-- Added missing 'end' here for the for loop
 
     local itemsFound = false
     local equippedToolInCharacter = nil
@@ -290,17 +300,8 @@ local function updateInventoryDisplayContent(player, billboardGui)
         itemIcon.BorderSizePixel = (isEquipped and 2 or 1)
         itemIcon.ScaleType = Enum.ScaleType.Fit
 
-        -- Improved logic for getting the tool icon:
-        -- 1. Try Tool.TextureId
-        -- 2. If empty, try to get a thumbnail of the tool model
-        -- 3. Fallback to a generic Roblox gear icon if all else fails
         local textureId = item.TextureId
         if textureId == "" or textureId == "rbxassetid://" then
-            -- Attempt to get a thumbnail of the tool model itself
-            -- Note: GetThumbnailAsync requires a web call and might not work for all tools or in all contexts.
-            -- It's primarily for asset IDs, not directly for in-game Instances.
-            -- For simplicity and reliability in a local client script, relying on TextureId is best.
-            -- If TextureId is blank, using a generic icon is the most robust client-side fallback.
             itemIcon.Image = "rbxassetid://2841641369" -- Default Roblox gear icon (placeholder)
         else
             itemIcon.Image = textureId -- Use the tool's TextureId
@@ -331,7 +332,6 @@ local function updateInventoryDisplayContent(player, billboardGui)
     -- Display backpack items
     if player.Backpack then
         for _, item in ipairs(player.Backpack:GetChildren()) do
-            -- Only add if it's a Tool AND it's not the same instance as the equipped tool in character
             if item:IsA("Tool") and item ~= equippedToolInCharacter then
                 createItemEntry(item, false)
             end
@@ -358,7 +358,6 @@ local function createPlayerInventoryDisplay(player)
     if player == LocalPlayer then return end
 
     local function setupBillboardGuiForCharacter(character)
-        -- Destroy existing BillboardGui for this player if it exists to prevent duplicates
         if playerInventoryGUIs[player.UserId] then
             playerInventoryGUIs[player.UserId]:Destroy()
             playerInventoryGUIs[player.UserId] = nil
@@ -425,18 +424,11 @@ local function createPlayerInventoryDisplay(player)
 
         updateInventoryDisplayContent(player, billboardGui)
 
-        -- Connect to character and backpack events to update the display
         local backpackConnection, backpackRemovedConnection, charChildAddedConnection, charChildRemovedConnection
 
-        -- Disconnect existing connections if this function is called again for the same player
-        -- (This part might be handled better by ensuring `playerInventoryGUIs` is properly cleared on character respawn)
-        -- For now, relying on the billboardGui.Destroying event to clean up connections is robust.
-
-        -- Listen for changes in the player's Backpack
         backpackConnection = player.Backpack.ChildAdded:Connect(function() updateInventoryDisplayContent(player, billboardGui) end)
         backpackRemovedConnection = player.Backpack.ChildRemoved:Connect(function() updateInventoryDisplayContent(player, billboardGui) end)
 
-        -- Listen for changes in the player's Character (for equipped tools)
         charChildAddedConnection = character.ChildAdded:Connect(function(child)
             if child:IsA("Tool") then updateInventoryDisplayContent(player, billboardGui) end
         end)
@@ -485,7 +477,7 @@ end
 
 -- Listen for new players joining
 Players.PlayerAdded:Connect(function(player)
-    createOrUpdatePlayerHighlight(player)
+    createOrUpdatePlayerHighlight(player) -- This will set enabled based on espEnabled
     createPlayerInventoryDisplay(player)
 end)
 
@@ -508,18 +500,18 @@ local function updateDrawings()
     end
 end
 
--- Function to handle toggling the aimbot state
+-- Function to handle toggling the aimbot state (now for the main button)
 local function toggleAimbot()
     scriptEnabled = not scriptEnabled
     print("Aimbot Toggled:", scriptEnabled and "ON" or "OFF")
 
     -- Update the button's appearance based on the new state
     if scriptEnabled then
-        aimbotToggleButton.Text = "Aimbot ON"
-        aimbotToggleButton.BackgroundColor3 = Color3.fromRGB(50, 200, 50) -- Green when ON
+        aimbotMainToggleButton.Text = "Aimbot ON"
+        aimbotMainToggleButton.BackgroundColor3 = Color3.fromRGB(50, 200, 50) -- Green when ON
     else
-        aimbotToggleButton.Text = "Aimbot OFF"
-        aimbotToggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50) -- Red when OFF
+        aimbotMainToggleButton.Text = "Aimbot OFF"
+        aimbotMainToggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50) -- Red when OFF
     end
 end
 
@@ -571,7 +563,21 @@ local function toggleESP()
     updateAllHighlightsVisibility(espEnabled)
 end
 
--- NEW: Function to handle toggling aimbot target mode
+-- NEW: Function to toggle Team Check
+local function toggleTeamCheck()
+    teamCheckEnabled = not teamCheckEnabled
+    print("Team Check Toggled:", teamCheckEnabled and "ON" or "OFF")
+
+    if teamCheckEnabled then
+        teamCheckToggleButton.Text = "Team Check: ON"
+        teamCheckToggleButton.BackgroundColor3 = Color3.fromRGB(50, 150, 50) -- Green
+    else
+        teamCheckToggleButton.Text = "Team Check: OFF"
+        teamCheckToggleButton.BackgroundColor3 = Color3.fromRGB(150, 50, 50) -- Red
+    end
+end
+
+-- Function to handle toggling aimbot target mode
 local function toggleAimbotTarget()
     if aimTargetMode == "HumanoidRootPart" then
         aimTargetMode = "Head"
@@ -614,6 +620,7 @@ local function toggleAimNoise()
         aimNoiseToggleButton.Text = "Noise: Low"
         aimNoiseToggleButton.BackgroundColor3 = Color3.fromRGB(200, 200, 0) -- Yellow
     elseif aimNoiseAmount == 0.1 then
+        aimNoiseAmount = 0.25 -- Medium noise
         aimNoiseToggleButton.Text = "Noise: Med"
         aimNoiseToggleButton.BackgroundColor3 = Color3.fromRGB(200, 100, 0) -- Dark Orange
     else -- Currently 0.25 (Medium) or fallback
@@ -629,25 +636,28 @@ end
 local function toggleCollapse()
     isCollapsed = not isCollapsed
     if isCollapsed then
-        mainFrame.Size = UDim2.new(0, 180, 0, 30) -- Only header height
+        -- Collapsed state: Only header and main aimbot toggle visible
+        mainFrame.Size = UDim2.new(0, 180, 0, 30 + 28 + 5) -- Header (30) + Aimbot Toggle (28) + padding (5)
         contentFrame.Visible = false
         toggleCollapseButton.Text = "+"
     else
-        -- Calculate the height needed for all buttons (6 buttons * 28px height + 7 * 5px padding) + header (30px)
-        local totalContentHeight = (6 * 28) + (7 * 5)
-        mainFrame.Size = UDim2.new(0, 180, 0, 30 + totalContentHeight)
+        -- Expanded state: Header + main aimbot toggle + content frame visible
+        -- Calculate the height needed for contentFrame: 6 buttons * 28px height + 7 * 5px padding
+        local contentFrameHeight = (6 * 28) + (7 * 5)
+        mainFrame.Size = UDim2.new(0, 180, 0, 30 + 28 + 5 + contentFrameHeight) -- Total height including header and aimbot toggle
         contentFrame.Visible = true
         toggleCollapseButton.Text = "-"
     end
 end
 
 -- Connect UI buttons to their functions
-aimbotToggleButton.MouseButton1Click:Connect(toggleAimbot)
+aimbotMainToggleButton.MouseButton1Click:Connect(toggleAimbot) -- Connect the dedicated aimbot button
 inventoryDisplayToggleButton.MouseButton1Click:Connect(toggleInventoryDisplay)
 espToggleButton.MouseButton1Click:Connect(toggleESP)
+teamCheckToggleButton.MouseButton1Click:Connect(toggleTeamCheck) -- Connect the team check button
 aimbotTargetToggleButton.MouseButton1Click:Connect(toggleAimbotTarget)
 maxDistanceToggleButton.MouseButton1Click:Connect(toggleMaxDistance)
-aimNoiseToggleButton.MouseButton1Click:Connect(toggleAimNoise) -- Connect the new aim noise button
+aimNoiseToggleButton.MouseButton1Click:Connect(toggleAimNoise)
 toggleCollapseButton.MouseButton1Click:Connect(toggleCollapse)
 
 local function onKeyDown(input)
@@ -696,10 +706,10 @@ local function getClosestPlayerInFOV()
 
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character then
-            -- Optional: Add Team Check here if you want to ensure players on the same team are not targeted
-            -- if LocalPlayer.Team and player.Team and LocalPlayer.Team == player.Team then
-            --    continue -- Skip if they are on the same team
-            -- end
+            -- NEW: Team Check
+            if teamCheckEnabled and LocalPlayer.Team and player.Team and LocalPlayer.Team == player.Team then
+               continue -- Skip if they are on the same team
+            end
 
             local targetPartForFOV = player.Character:FindFirstChild("HumanoidRootPart") -- Always use HRP for FOV check
             if not targetPartForFOV then continue end
@@ -765,8 +775,8 @@ aimbotConnection = RunService.RenderStepped:Connect(function()
 end)
 
 -- Initialize highlights and inventory displays for players already in the game when the script starts
--- This should be called after all functions are defined
+-- This should be called AFTER all functions are defined
 setupExistingPlayersFeatures()
 
--- Ensure the GUI is initially collapsed as per `isCollapsed = true`
+-- Ensure the GUI is initially collapsed as per `isCollapsed = true` and shows the new button
 toggleCollapse()
